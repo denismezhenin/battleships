@@ -9,6 +9,7 @@ export interface Rooms {
   roomUsers: {name: string, index: number}[]
 }
 
-export type ExtenderWebSocket = {
-
-}
+export interface Winner {
+name: string;
+wins: number;
+} 

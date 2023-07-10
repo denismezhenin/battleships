@@ -1,38 +1,28 @@
 import { httpServer as server } from './http_server/index';
 import { WebSocketServer, WebSocket } from 'ws';
-import { Rooms } from './constants/types';
-import { Type } from 'typescript';
-import { truncate } from 'fs';
+import { Rooms, Winner } from './constants/types';
 
 const HTTP_PORT = 8181;
 
 interface User {
-    name: string;
-    password: string;
-    socket: WebSocket;
-}
-
-interface winner {
-  name: string;
-  wins: number;
-} 
+  name: string,
+  password: string,
+  socket: WebSocket
+  }
 
 console.log(`Start static http server on the ${HTTP_PORT} port!`);
 server.listen(HTTP_PORT);
 const ws = new WebSocketServer({ port: 3000 });
 
 const users: User[] = [];
-// const users: Map <string, User> = new Map()
 const rooms: Rooms[] = [];
 const games = {};
-const winners: winner[] = [{name: "sdadasd", wins: 5}]
+const winners: Winner[] = []
 
 ws.on('connection', function connection(socket: WebSocket) {
 
     socket.on('message', async (message) => {
         const data = await JSON.parse(message.toString());
-        // console.log(data);
-        //  const parsedData = JSON.parse(data.data)
 
         switch (data.type) {
             case 'reg': {
@@ -47,7 +37,6 @@ ws.on('connection', function connection(socket: WebSocket) {
                   const data = JSON.stringify(rooms);
                   const response2 = { type: 'update_room', data, id: 0 };
                   const stringifyResponse = JSON.stringify(response2);
-                  // console.log(stringifyResponse);
   
                   ws.clients.forEach((client) => {
                       client.send(stringifyResponse);
@@ -63,17 +52,14 @@ ws.on('connection', function connection(socket: WebSocket) {
                     roomUsers: [{ name: user.name, index: 0 }],
                 };
                 rooms.push(room);
-                // console.log(room);
-                // const stringifyRoom = rooms.map(el => JSON.stringify(el))
                 const data = JSON.stringify(rooms);
                 const response = { type: 'update_room', data, id: 0 };
                 const stringifyResponse = JSON.stringify(response);
-                // console.log(stringifyResponse);
 
                 ws.clients.forEach((client) => {
                     client.send(stringifyResponse);
                 });
-                // broadcastMessage(messages)
+
                 break;
             }
             case 'add_user_to_room': {
@@ -110,67 +96,28 @@ ws.on('connection', function connection(socket: WebSocket) {
             case 'add_ships': {
                 const parsedData = JSON.parse(data.data);
                 const ships = createShipsArray(parsedData.ships)
-                if (parsedData.indexPlayer === 0) {
-                  // console.log(parsedData.ships)
-                    games[String(parsedData.gameId)].players.playerOne.ships = ships;
-                    socket.send(
-                        JSON.stringify({
-                            type: 'start_game',
-                            data: JSON.stringify({ ships: parsedData.ships, currentPlayerIndex: 0 }),
-                            id: 0,
-                        })
-                    );
+                const player = parsedData.indexPlayer === 0 ? "playerOne" : "playerTwo";
+                games[String(parsedData.gameId)].players[player].ships = ships;
+                socket.send(
+                    JSON.stringify({
+                        type: 'start_game',
+                        data: JSON.stringify({ ships: parsedData.ships, currentPlayerIndex: 0 }),
+                        id: 0,
+                    })
+                );
+
                     if (
                         games[String(parsedData.gameId)].players.playerOne.ships &&
                         games[String(parsedData.gameId)].players.playerTwo.ships
                     ) {
-                        socket.send(
-                          JSON.stringify({
-                            type: 'turn',
-                            data: JSON.stringify({ currentPlayer: 0 }),
-                            id: 0,
-                          })
-                          );
-                          
-                        games[String(parsedData.gameId)].players.playerTwo.socket.send(
-                          JSON.stringify({
-                            type: 'turn',
-                            data: JSON.stringify({ currentPlayer: 0 }),
-                            id: 0,
-                          })
-                      );
-
+                      const message = JSON.stringify({
+                                    type: 'turn',
+                                    data: JSON.stringify({ currentPlayer: 0 }),
+                                    id: 0,
+                                  })
+                       sendResponseToTwoClients(parsedData.gameId, message)           
                     }
-                } else {
-                    games[String(parsedData.gameId)].players.playerTwo.ships = ships;
-                    socket.send(
-                        JSON.stringify({
-                            type: 'start_game',
-                            data: JSON.stringify({ ships: parsedData.ships, currentPlayerIndex: 1 }),
-                            id: 0,
-                        })
-                    );
-                    if (
-                        games[String(parsedData.gameId)].players.playerOne.ships &&
-                        games[String(parsedData.gameId)].players.playerTwo.ships
-                    ) 
-                    {
-                        socket.send(
-                          JSON.stringify({
-                              type: 'turn',
-                              data: JSON.stringify({ currentPlayer: 0 }),
-                              id: 0,
-                          })
-                      );
-                        games[String(parsedData.gameId)].players.playerOne.socket.send(
-                          JSON.stringify({
-                              type: 'turn',
-                              data: JSON.stringify({ currentPlayer: 0 }),
-                              id: 0,
-                          })
-                      );
-                    }
-                }
+              
                 break;
             }
             case 'attack': {
@@ -382,15 +329,6 @@ const strike = (data: {x: number, y: number, gameId: number, indexPlayer: number
           sendResponseToTwoClients(data.gameId, changeTurnMessage)
 
           sendWinnersResponseToAll(ws)
-
-        //   const updateWinnersMessage = JSON.stringify({
-        //     type: 'update_winners',
-        //     data: JSON.stringify({ currentPlayer: games[String(data.gameId)].turn}),
-        //     id: 0,
-        //   })
-        //   ws.clients.forEach((client) => {
-        //     client.send(updateWinnersMessage);
-        // });
         }
 };
 
@@ -410,43 +348,3 @@ const sendResponseToTwoClients = (gameId, message) => {
   games[String(gameId)].players.playerOne.socket.send(message)
   games[String(gameId)].players.playerTwo.socket.send(message)
 }
-
-// const sendResponse = () => {
-
-// }
-
-// function broadcastMessage(message) {
-//   // console.log(ws.clients)
-//   ws.clients.forEach(client => {
-//       client.send(JSON.stringify(message))
-//   })
-// }
-
-// const regPlayer = (data) => {
-
-// }
-
-// const createGame = () => {
-
-// }
-// const startGame = () => {
-
-// }
-
-// const sendTurn = () => {
-
-// }
-
-// const attack = () => {
-
-// }
-// const finishGame = () => {
-
-// }
-// const updateRoom = () => {
-
-// }
-
-// const updateWinners = () => {
-
-// }
