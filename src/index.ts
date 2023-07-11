@@ -4,10 +4,13 @@ import { Rooms, Winner } from './constants/types';
 
 const HTTP_PORT = 8181;
 
+// handle disconect
+
+
 interface User {
   name: string,
   password: string,
-  socket: WebSocket
+  socket: WebSocket,
   }
 
 console.log(`Start static http server on the ${HTTP_PORT} port!`);
@@ -20,7 +23,7 @@ const games = {};
 const winners: Winner[] = []
 
 ws.on('connection', function connection(socket: WebSocket) {
-
+  console.log("usser conected")
     socket.on('message', async (message) => {
         const data = await JSON.parse(message.toString());
 
@@ -31,22 +34,25 @@ ws.on('connection', function connection(socket: WebSocket) {
                 const messageData = validateUser(parsedData)
                 const response = JSON.stringify({ type: 'reg', data: messageData, id: 0 });
                 socket.send(response);
-                sendWinnersResponseToAll(ws)
+                const updateWinnersMessage = JSON.stringify({
+                  type: 'update_winners',
+                  data: JSON.stringify(winners),
+                  id: 0,
+                })
+                socket.send(updateWinnersMessage)
                 if (rooms.length > 0) {
 
                   const data = JSON.stringify(rooms);
                   const response2 = { type: 'update_room', data, id: 0 };
                   const stringifyResponse = JSON.stringify(response2);
-  
-                  ws.clients.forEach((client) => {
-                      client.send(stringifyResponse);
-                  });
+                  socket.send(stringifyResponse)
                 }
                 break;
             }
             case 'create_room': {
                 const roomId = rooms.length;
-                const user: User = users.filter((el) => el.socket === socket)[0];
+                const user = users.find((el) => el.socket === socket);
+                if (!user) return
                 const room = {
                     roomId,
                     roomUsers: [{ name: user.name, index: 0 }],
@@ -64,10 +70,11 @@ ws.on('connection', function connection(socket: WebSocket) {
             }
             case 'add_user_to_room': {
                 const parsedData = JSON.parse(data.data);
-                const user1: User = users.filter((el) => el.socket === socket)[0];
+                const user1 = users.find((el) => el.socket === socket);
                 const user2Name = rooms[parsedData.indexRoom].roomUsers[0].name;
-                const user2: User = users.filter((el) => el.name === user2Name)[0];
-                rooms[parsedData.indexRoom].roomUsers.push({ name: user2.name, index: 1 });
+                const user2 = users.find((el) => el.name === user2Name);
+                if (!user1 || !user2) return
+                rooms[parsedData.indexRoom].roomUsers.push({ name: user1.name, index: 1 });
 
                 const newGame = {
                     idGame: Object.keys(games).length,
@@ -135,19 +142,69 @@ ws.on('connection', function connection(socket: WebSocket) {
             }
         }
     });
+    socket.on("close", () => {
+      console.log("usser disconected")
+      console.log(rooms)
+      const user = users.find(el => el.socket === socket)
+      const room = user ? rooms.find(el => el.roomUsers.filter(el => el.name === user.name)) : null
+      const user2 = room && user ? room.roomUsers.find(el => el.name !== user.name) : null
+      const user2socket = user2 ? users.filter(el => el.name === user2.name)[0].socket : null
+      if (user2socket && user2) {
+        const indexPlayer = user2.index === 0 ? 1 : 0
+        const winMessage = JSON.stringify({
+          type: 'finish',
+          data: JSON.stringify({ winPlayer: indexPlayer}),
+          id: 0,
+        })
+        user2socket.send(winMessage)
+        const findWinner =  winners.find(el => el.name === user2.name) 
+            if (findWinner) {
+              findWinner.wins = findWinner.wins + 1
+            } else {
+              const winner = {
+                name: user2.name,
+                wins: 1
+              }
+              winners.push(winner)
+            }
+            sendWinnersResponseToAll(ws)
+            if (user2.index === 1) {
+
+              const roomIndex = rooms.findIndex(el => el.roomId === room?.roomId)
+              rooms.splice(roomIndex, 1)
+
+            }
+              const data = JSON.stringify(rooms);
+              const response = { type: 'update_room', data, id: 0 };
+              const stringifyResponse = JSON.stringify(response);
+  
+              ws.clients.forEach((client) => {
+                  client.send(stringifyResponse);
+              });
+            // rooms.filter(r)
+      }
+    })
 });
 
 const validateUser = (data) => {
 const isValidName = data.name.length > 4 ? true : false;
 const isValidPassword = data.password.length > 4 ? true : false;
 const isUserHasExistAlready = users.some(el => el.name === data.name)
-const valid = (isValidName && isValidPassword && !isUserHasExistAlready)
-valid ? users.push(data) : null
+let isRightPassword = true
+if (isUserHasExistAlready) {
+  const user = users.find(el => el.name === data.name)
+  isRightPassword = user && user.password === data.password ? true : false
+  isRightPassword && user ? user.socket = data.socket : null
+}
+const valid = (isValidName && isValidPassword && isRightPassword)
+if (valid && !isUserHasExistAlready) {
+  users.push(data)
+}
 const message = JSON.stringify({
   name: data.name,
   index: valid ? users.findIndex((el) => el.name === data.name) : 0,
   error: !valid,
-  errorText: !isValidName ? "name too short" : !isValidPassword ? "password too short" : isUserHasExistAlready ? "user a already exist" : "",
+  errorText: !isValidName ? "name too short" : !isValidPassword ? "password too short" : !isRightPassword ? "wrong password" : "",
 });
 return message
 }
@@ -326,8 +383,8 @@ const strike = (data: {x: number, y: number, gameId: number, indexPlayer: number
             data: JSON.stringify({ winPlayer: data.indexPlayer}),
             id: 0,
           })
+          
           sendResponseToTwoClients(data.gameId, changeTurnMessage)
-
           sendWinnersResponseToAll(ws)
         }
 };
